@@ -19,20 +19,20 @@
    //  x13 (a3): 1..10
    //  x14 (a4): Sum
    // 
-   m4_asm(ADDI, x14, x0, 0)             // Initialize sum register a4 with 0
-   m4_asm(ADDI, x12, x0, 1010)          // Store count of 10 in register a2.
-   m4_asm(ADDI, x13, x0, 1)             // Initialize loop count register a3 with 0
+   //m4_asm(ADDI, x14, x0, 0)             // Initialize sum register a4 with 0
+   //m4_asm(ADDI, x12, x0, 1010)          // Store count of 10 in register a2.
+   //m4_asm(ADDI, x13, x0, 1)             // Initialize loop count register a3 with 0
    // Loop:
-   m4_asm(ADD, x14, x13, x14)           // Incremental summation
-   m4_asm(ADDI, x13, x13, 1)            // Increment loop count by 1
-   m4_asm(BLT, x13, x12, 1111111111000) // If a3 is less than a2, branch to label named <loop>
+   //m4_asm(ADD, x14, x13, x14)           // Incremental summation
+   //m4_asm(ADDI, x13, x13, 1)            // Increment loop count by 1
+   //m4_asm(BLT, x13, x12, 1111111111000) // If a3 is less than a2, branch to label named <loop>
    // Test result value in x14, and set x31 to reflect pass/fail.
-   m4_asm(ADDI, x30, x14, 111111010100) // Subtract expected value of 44 to set x30 to 1 if and only iff the result is 45 (1 + 2 + ... + 9).
-   m4_asm(BGE, x0, x0, 0) // Done. Jump to itself (infinite loop). (Up to 20-bit signed immediate plus implicit 0 bit (unlike JALR) provides byte address; last immediate bit should also be 0)
-   m4_asm_end()
-   m4_define(['M4_MAX_CYC'], 50)
+   //m4_asm(ADDI, x30, x14, 111111010100) // Subtract expected value of 44 to set x30 to 1 if and only iff the result is 45 (1 + 2 + ... + 9).
+   //m4_asm(BGE, x0, x0, 0) // Done. Jump to itself (infinite loop). (Up to 20-bit signed immediate plus implicit 0 bit (unlike JALR) provides byte address; last immediate bit should also be 0)
+   //m4_asm_end()
+   //m4_define(['M4_MAX_CYC'], 50)
    //---------------------------------------------------------------------------------
-
+   m4_test_prog()
 
 
 \SV
@@ -43,8 +43,11 @@
    $reset = *reset;
    
    
-   $next_pc[31:0] = $reset ? 0 :
-      $taken_br ? $br_tgt_pc : ($pc[31:0] + 32'b100);
+   $next_pc[31:0] = $reset ?
+      0 : ($taken_br || $is_jal) ?
+      $br_tgt_pc : $is_jalr ?
+      $jalr_tgt_pc :
+      ($pc[31:0] + 32'd4);
    $pc[31:0] = >>1$next_pc[31:0];
    
    `READONLY_MEM($pc, $$instr[31:0]);
@@ -86,6 +89,33 @@
    `BOGUS_USE($imm)
    
    $dec_bits[10:0] = {$instr[30], $funct3, $opcode};
+   
+   $is_lui = $dec_bits ==? 11'bx_xxx_0110111;
+   $is_auipc = $dec_bits ==? 11'bx_xxx_0010111;
+   $is_jal = $dec_bits ==? 11'bx_xxx_1101111;
+   $is_jalr = $dec_bits ==? 11'bx_000_1100111;
+   
+   $is_slti = $dec_bits ==? 11'bx_010_0010011;
+   $is_sltiu = $dec_bits ==? 11'bx_011_0010011;
+   $is_xori = $dec_bits ==? 11'bx_100_0010011;
+   $is_ori = $dec_bits ==? 11'bx_110_0010011;
+   $is_andi = $dec_bits ==? 11'bx_111_0010011;
+   
+   $is_slli = $dec_bits == 11'b0_001_0010011;
+   $is_srli = $dec_bits == 11'b0_101_0010011;
+   $is_srai = $dec_bits == 11'b1_101_0010011;
+   
+   $is_add = $dec_bits == 11'b0_000_0110011;
+   $is_sub = $dec_bits == 11'b1_000_0110011;
+   $is_sll = $dec_bits == 11'b0_001_0110011;
+   $is_slt = $dec_bits == 11'b0_010_0110011;
+   $is_sltu = $dec_bits == 11'b0_011_0110011;
+   $is_xor = $dec_bits == 11'b0_100_0110011;
+   $is_srl = $dec_bits == 11'b0_101_0110011;
+   $is_sra = $dec_bits == 11'b1_101_0110011;
+   $is_or = $dec_bits == 11'b0_110_0110011;
+   $is_and = $dec_bits == 11'b0_111_0110011;
+   
    $is_beq = $dec_bits ==? 11'bx_000_1100011;
    $is_bne = $dec_bits ==? 11'bx_001_1100011;
    $is_blt = $dec_bits ==? 11'bx_100_1100011;
@@ -93,17 +123,50 @@
    $is_bltu = $dec_bits ==? 11'bx_110_1100011;
    $is_bgeu = $dec_bits ==? 11'bx_111_1100011;
    $is_addi = $dec_bits ==? 11'bx_000_0010011;
-   $is_add = $dec_bits ==? 11'b0_000_0110011;
+   
+   $is_load = $opcode == 7'b0000011;
    
    `BOGUS_USE($is_beq $is_bne $is_blt $is_bge $is_bltu $is_bgeu $is_addi $is_add)
    
-   $rs1_enable = 1'b1;
+   $rs1_enable = $is_r_instr || $is_s_instr || $is_b_instr || $is_i_instr;
    $rs2_enable = $is_r_instr || $is_s_instr || $is_b_instr;
    $rd_enable = !$is_s_instr && !$is_b_instr && $rd != 0;
    
+   $shamt[4:0] = $imm[4:0];
+   $sltu_val = $src1_value < $src2_value ? 32'b1 : 32'b0;
+   $sltiu_val = $src1_value < $imm ? 32'b1 : 32'b0;
+   
+   // sign extend src1 to 64 bits so arithmetic shifts can be performed
+   $sext_src1[63:0] = { {32{$src1_value[31]}}, $src1_value };
+   $sra_val[63:0] = $sext_src1 >> $src2_value[4:0];
+   $srai_val[63:0] = $sext_src1 >> $shamt[4:0];
+   
    $result[31:0] = $is_addi ?
       $src1_value + $imm : $is_add ?
-      $src1_value + $src2_value :
+      $src1_value + $src2_value : $is_andi ?
+      $src1_value & $imm : $is_xori ?
+      $src1_value ^ $imm : $is_ori ?
+      $src1_value | $imm : $is_slli ?
+      $src1_value << $shamt[4:0] : $is_srli ?
+      $src1_value >> $shamt[4:0] : $is_and ?
+      $src1_value & $src2_value : $is_or ?
+      $src1_value | $src2_value : $is_xor ?
+      $src1_value ^ $src2_value : $is_sub ?
+      $src1_value - $src2_value : $is_sll ?
+      $src1_value << $src2_value[4:0] : $is_srl ?
+      $src1_value >> $src2_value[4:0] : $is_sltu ?
+      $sltu_val : $is_sltiu ?
+      $sltiu_val : $is_lui ?
+      {$imm[31:12], 12'b0} : $is_srai ?
+      $srai_val[31:0] : $is_slt ?
+      ($src1_value[31] == $src2_value[31] ? $sltu_val : {31'b0, $src1_value[31]}) : $is_slti ?
+      ($src1_value[31] == $src2_value[31] ? $sltiu_val : {31'b0, $src1_value[31]}) : $is_sra ?
+      $sra_val[31:0] : $is_auipc ?
+      $imm + $pc : $is_jal ?
+      $pc + 32'd4 : $is_jalr ?
+      $pc + 32'd4 : ($is_load || $is_s_instr) ?
+      $src1_value + $imm
+      :
       32'b0;
 
    // branch logic
@@ -117,6 +180,9 @@
    $taken_br = ($is_beq & $beq) | ($is_bne & $bne) | ($is_blt & $blt) |
                ($is_bge & $bge) | ($is_bltu & $bltu) | ($is_bgeu & $bgeu);
    $br_tgt_pc[31:0] = $pc + $imm;
+   
+   // jump logic
+   $jalr_tgt_pc[31:0] = $src1_value + $imm;
    // ...
    
    
@@ -125,8 +191,8 @@
    m4+tb()
    *failed = *cyc_cnt > M4_MAX_CYC;
    
-   m4+rf(32, 32, $reset, $rd_enable, $rd, $result[31:0], $rs1_enable, $rs1, $src1_value, $rs2_enable, $rs2, $src2_value)
-   //m4+dmem(32, 32, $reset, $addr[4:0], $wr_en, $wr_data[31:0], $rd_en, $rd_data)
+   m4+rf(32, 32, $reset, $rd_enable, $rd, $is_load ? $ld_data[31:0] : $result[31:0], $rs1_enable, $rs1, $src1_value, $rs2_enable, $rs2, $src2_value)
+   m4+dmem(32, 32, $reset, $result[31:2], $is_s_instr, $src2_value, $is_load, $ld_data)
    m4+cpu_viz()
 \SV
    endmodule
